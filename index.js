@@ -49,6 +49,23 @@ let completedGames = 0;
 let isTrialMode = false;
 let previousRemaining = 0;
 
+// Placeholder for NFT-based resurrection tracking
+let resurrectionSet = new Set();
+
+// Voting trackers
+let bossVoteCounts = {};
+let bossAlreadyVoted = new Set();
+let audienceVoteCounts = {};
+let audienceAlreadyVoted = new Set();
+
+// External config
+let serverConfigs = {};
+const CONFIG_FILE = './serverConfigs.json';
+if (fs.existsSync(CONFIG_FILE)) {
+  serverConfigs = JSON.parse(fs.readFileSync(CONFIG_FILE));
+}
+// === Batch 2: Trial Names, Eliminations, Specials, Revivals ===
+
 const trialNames = [
   "Trial of the Screaming Mire", "The Eldritch Scramble", "Trial of the Shattered Bones",
   "The Maw's Hunger", "Dance of the Ugly Reflection", "Trial of the Crooked Path",
@@ -105,7 +122,7 @@ const eliminationEvents = [
   "opened a lootbox labeled “DO NOT OPEN.”",
   "hit reply-all in the underworld newsletter. Got banned."
 ];
-
+// === Batch 3: Special Eliminations, Revival Events, Fail Lines ===
 
 const specialEliminations = [
   "was sacrificed to the ancient hairball under the couch.",
@@ -130,7 +147,6 @@ const specialEliminations = [
   "rolled a d20 and summoned their inner child. It panicked and ran."
 ];
 
-
 const revivalEvents = [
   "was too ugly to stay dead and clawed their way back!",
   "refused to die and bribed fate with $CHARM.",
@@ -154,7 +170,6 @@ const revivalEvents = [
   "was resurrected as a meme, and that counts."
 ];
 
-
 const reviveFailLines = [
   "🦶 You wiggle in the dirt… but you're still dead.",
   "👁️ The malformed forces laugh and turn away.",
@@ -172,24 +187,16 @@ const reviveFailLines = [
   "🤡 Your revival was reviewed… and laughed at.",
   "🪤 You triggered a trap trying to live. Good effort though."
 ];
+// === Batch 4: Interaction Handlers & Buttons ===
 
-
-// === Server Configs ===
-let serverConfigs = {};
-const CONFIG_FILE = './serverConfigs.json';
-if (fs.existsSync(CONFIG_FILE)) {
-  serverConfigs = JSON.parse(fs.readFileSync(CONFIG_FILE));
-}
-// === Batch 2: Interaction Handlers & Join Button ===
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
 
-  // === Join Button Logic ===
+  // === Join Gauntlet ===
   if (interaction.customId === 'join_gauntlet' && gauntletActive) {
     const alreadyJoined = gauntletEntrants.find(e => e.id === interaction.user.id);
     if (!alreadyJoined) {
       gauntletEntrants.push({ id: interaction.user.id, username: interaction.user.username });
-
       await interaction.reply({ content: 'You have joined the Ugly Gauntlet! Prepare yourself…', ephemeral: true });
 
       if (gauntletMessage && gauntletMessage.editable) {
@@ -201,8 +208,65 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.reply({ content: 'You have already joined this round!', ephemeral: true });
     }
   }
+// === Batch B: Admin Button Interaction Handlers ===
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isButton()) return;
 
-  // === Resurrection Button ===
+  const { user, customId } = interaction;
+  const guildId = interaction.guildId || null;
+
+  if (!guildId) return;
+
+  const fieldMap = {
+    set_drip_token: { field: 'dripToken', prompt: 'Paste your DRIP **API Token**:' },
+    set_drip_account: { field: 'dripAccountId', prompt: 'Enter your **DRIP Account ID**:' },
+    set_currency_id: { field: 'currencyId', prompt: 'Enter your **DRIP Currency ID**:' },
+    set_host_roles: { field: 'hostRoles', prompt: 'Paste **Role IDs** allowed to host Gauntlets (comma-separated):' },
+    set_admin_roles: { field: 'adminRoles', prompt: 'Paste **Role IDs** allowed to use `!GauntletAdmin` (comma-separated):' },
+    set_ipfs_url: { field: 'ipfsBaseUrl', prompt: 'Enter the **base IPFS URL** for your NFT images (no trailing slash):' }
+  };
+
+  const setting = fieldMap[customId];
+  if (!setting) return;
+
+  await interaction.reply({ content: `📩 Check your DMs to continue...`, ephemeral: true });
+
+  try {
+    const dm = await user.send(`🛠️ ${setting.prompt}`);
+    const collector = dm.channel.createMessageCollector({
+      filter: m => m.author.id === user.id,
+      time: 60000,
+      max: 1
+    });
+
+    collector.on('collect', msg => {
+      if (!serverConfigs[guildId]) serverConfigs[guildId] = {};
+
+      // If it's a list-type setting
+      if (['hostRoles', 'adminRoles'].includes(setting.field)) {
+        const values = msg.content.split(',').map(v => v.trim()).filter(Boolean);
+        serverConfigs[guildId][setting.field] = values;
+      } else {
+        serverConfigs[guildId][setting.field] = msg.content.trim();
+      }
+
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(serverConfigs, null, 2));
+      dm.send(`✅ **${setting.field}** updated for this server!`);
+    });
+
+    collector.on('end', collected => {
+      if (collected.size === 0) {
+        dm.send(`⏳ No response received. Use \`!GauntletAdmin\` again to try later.`);
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    await interaction.followUp({ content: '❌ I couldn’t DM you. Please enable DMs and try again.', ephemeral: true });
+  }
+});
+
+  // === Resurrection Click ===
   if (interaction.customId === 'resurrection_click') {
     if (!eliminatedPlayers.find(p => p.id === interaction.user.id)) {
       return interaction.reply({ content: '👻 You aren’t even dead. Nice try.', ephemeral: true });
@@ -211,7 +275,7 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: '💫 The totem accepts your touch...', ephemeral: true });
   }
 
-  // === Resist Mutation Button ===
+  // === Resist Mutation Click ===
   if (interaction.customId === 'resist_mutation') {
     if (!remaining.find(p => p.id === interaction.user.id)) {
       return interaction.reply({ content: '🛑 Only live players may resist.', ephemeral: true });
@@ -220,7 +284,7 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: '🧬 Your resistance is noted.', ephemeral: true });
   }
 
-  // === Survival Trap Button ===
+  // === Survival Trap Click ===
   if (interaction.customId === 'survival_click') {
     if (survivorsThisRound >= 3 || !remaining.find(p => p.id === interaction.user.id)) {
       return interaction.reply({ content: '⛔ Too late — the rope has already saved 3!', ephemeral: true });
@@ -230,7 +294,7 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: '🛡️ You grabbed the rope and are protected!', ephemeral: true });
   }
 
-  // === Rematch Button ===
+  // === Rematch Vote ===
   if (interaction.customId === 'rematch_gauntlet') {
     if (rematchVoters.has(interaction.user.id)) {
       return interaction.reply({ content: '⛔ You’ve already voted for a rematch.', ephemeral: true });
@@ -277,29 +341,76 @@ client.on(Events.InteractionCreate, async interaction => {
     return interaction.reply({ content: `✅ Your vote has been cast.`, ephemeral: true });
   }
 });
-// === Batch 2: Interaction Handlers & Join Button ===
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isButton()) return;
+// === Batch 5: Start Gauntlet & Join Countdown ===
 
-  // Join Button Logic
-  if (interaction.customId === 'join_gauntlet' && gauntletActive) {
-    const alreadyJoined = gauntletEntrants.find(e => e.id === interaction.user.id);
-    if (!alreadyJoined) {
-      gauntletEntrants.push({ id: interaction.user.id, username: interaction.user.username });
+async function startGauntlet(channel, delay) {
+  if (gauntletActive) return;
+  isTrialMode = false;
 
-      await interaction.reply({ content: 'You have joined the Ugly Gauntlet! Prepare yourself…', ephemeral: true });
+  // Reset game state
+  gauntletEntrants = [];
+  gauntletActive = true;
+  eliminatedPlayers = [];
+  remaining = [];
+  activeBoons = {};
+  activeCurses = {};
+  roundImmunity = {};
+  fateRolls = {};
+  tauntTargets = {};
+  dodgeAttempts = {};
+  hideAttempts = {};
+  mutationDefenseClicks = new Set();
+  rematchClicks = 0;
 
-      if (gauntletMessage && gauntletMessage.editable) {
-        const embed = EmbedBuilder.from(gauntletMessage.embeds[0])
-          .setDescription(`Click to enter. 🧟 Entrants so far: ${gauntletEntrants.length}`);
-        await gauntletMessage.edit({ embeds: [embed] });
-      }
+  gauntletChannel = channel;
+  currentDelay = delay;
+
+  // Send join embed
+  const joinButton = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('join_gauntlet')
+      .setLabel('Join the Ugly Gauntlet')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  gauntletMessage = await channel.send({
+    embeds: [new EmbedBuilder()
+      .setTitle('🏁 The Ugly Gauntlet Has Begun!')
+      .setDescription(`Click to enter. You have ${delay} minutes.\n🧟 Entrants so far: 0`)
+      .setColor(0x6e40c9)
+    ],
+    components: [joinButton]
+  });
+
+  // Countdown logic
+  const totalMs = delay * 60 * 1000;
+  const intervalMs = totalMs / 3;
+
+  // Final start after countdown
+  joinTimeout = setTimeout(async () => {
+    if (gauntletEntrants.length < 1) {
+      await channel.send('Not enough entrants joined. Try again later.');
+      gauntletActive = false;
     } else {
-      await interaction.reply({ content: 'You have already joined this round!', ephemeral: true });
+      await runGauntlet(channel);
     }
-  }
-});
-// === Batch 3: Mass Revival Totem Event ===
+  }, totalMs);
+
+  // Countdown messages
+  setTimeout(() => {
+    channel.send(`⏳ One third of the time has passed. **${Math.round((delay * 2) / 3)} minutes left** to join the Gauntlet...`);
+  }, intervalMs);
+
+  setTimeout(() => {
+    channel.send(`⚠️ Two thirds of the countdown are gone. Only **${Math.round(delay / 3)} minutes** remain to join!`);
+  }, intervalMs * 2);
+
+  setTimeout(() => {
+    channel.send(`🕰️ Final moment! The Gauntlet will begin **any second now...**`);
+  }, totalMs - 5000);
+}
+// === Batch 6: Mass Revival Totem Event ===
+
 async function massRevivalEvent(channel) {
   const eligible = [...eliminatedPlayers];
   if (eligible.length === 0) return;
@@ -332,14 +443,14 @@ async function massRevivalEvent(channel) {
   });
 
   collector.on('end', async () => {
-    await prompt.edit({ components: [] }); // disable the button
+    await prompt.edit({ components: [] });
 
     if (braveFools.size === 0) {
       await channel.send('🪦 No souls were bold enough to risk the totem.');
       return;
     }
 
-    // List participants
+    // List brave participants
     const names = [...braveFools].map(id => `<@${id}>`).join('\n');
     await channel.send({
       embeds: [new EmbedBuilder()
@@ -349,7 +460,6 @@ async function massRevivalEvent(channel) {
       ]
     });
 
-    // Countdown
     await channel.send('🕒 3...');
     await new Promise(r => setTimeout(r, 1000));
     await channel.send('🕒 2...');
@@ -386,69 +496,8 @@ async function massRevivalEvent(channel) {
     }
   });
 }
-// === Batch 4: Start Gauntlet & Join Countdown ===
-async function startGauntlet(channel, delay) {
-  if (gauntletActive) return;
-  isTrialMode = false;
+// === Batch 7A: runGauntlet — Setup & Boss Vote ===
 
-  gauntletEntrants = [];
-  gauntletActive = true;
-  eliminatedPlayers = [];
-  remaining = [];
-  activeBoons = {};
-  activeCurses = {};
-  roundImmunity = {};
-  fateRolls = {};
-  tauntTargets = {};
-  dodgeAttempts = {};
-  hideAttempts = {};
-  mutationDefenseClicks = new Set();
-  rematchClicks = 0;
-
-  gauntletChannel = channel;
-  currentDelay = delay;
-
-  const joinButton = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('join_gauntlet')
-      .setLabel('Join the Ugly Gauntlet')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  gauntletMessage = await channel.send({
-    embeds: [new EmbedBuilder()
-      .setTitle('🏁 The Ugly Gauntlet Has Begun!')
-      .setDescription(`Click to enter. You have ${delay} minutes.\n🧟 Entrants so far: 0`)
-      .setColor(0x6e40c9)
-    ],
-    components: [joinButton]
-  });
-
-  const totalMs = delay * 60 * 1000;
-  joinTimeout = setTimeout(async () => {
-    if (gauntletEntrants.length < 1) {
-      await channel.send('Not enough entrants joined. Try again later.');
-      gauntletActive = false;
-    } else {
-      await runGauntlet(channel);
-    }
-  }, totalMs);
-
-  const intervalMs = totalMs / 3;
-
-  setTimeout(() => {
-    channel.send(`⏳ One third of the time has passed. **${Math.round((delay * 2) / 3)} minutes left** to join the Gauntlet...`);
-  }, intervalMs);
-
-  setTimeout(() => {
-    channel.send(`⚠️ Two thirds of the countdown are gone. Only **${Math.round(delay / 3)} minutes** remain to join!`);
-  }, intervalMs * 2);
-
-  setTimeout(() => {
-    channel.send(`🕰️ Final moment! The Gauntlet will begin **any second now...**`);
-  }, totalMs - 5000);
-}
-// === Batch 5: runGauntlet — Setup, Boss Vote, and Round Loop ===
 async function runGauntlet(channel) {
   gauntletActive = false;
   remaining = [...gauntletEntrants];
@@ -457,7 +506,7 @@ async function runGauntlet(channel) {
   const maxVotesPerGame = 2;
   let previousRemaining = remaining.length;
 
-  // === Boss Vote (NEW) ===
+  // === Boss Vote ===
   const bossCandidates = [...remaining].sort(() => 0.5 - Math.random()).slice(0, 5);
   const bossVoteRow = new ActionRowBuilder().addComponents(
     ...bossCandidates.map((p) =>
@@ -507,7 +556,8 @@ async function runGauntlet(channel) {
   const boss = remaining.find(p => p.id === bossId);
   await channel.send(`👹 A foul stench rises... <@${boss.id}> has been chosen as the **UGLY BOSS**! If they make it to the podium, they earn **double $CHARM**...`);
 
-  // === Begin Rounds ===
+  // === Begin Round Loop (next batch) ===
+  // === Round Loop Begins ===
   while (remaining.length > 3) {
     const eliminations = Math.min(2, remaining.length - 3);
     const eliminated = [];
@@ -522,11 +572,7 @@ async function runGauntlet(channel) {
     }
     previousRemaining = remaining.length;
 
-    // Mutation, traps, resurrection, boons, curses, eliminations...
-    // ⏩ Proceed to Batch 6 (event logic and round resolution)
-  }
-}
-    // === Mutation Defense (20% chance) ===
+    // === Mutation Round (20%) ===
     if (Math.random() < 0.2) {
       const mutateRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -563,7 +609,7 @@ async function runGauntlet(channel) {
         : '💥 Not enough resistance. The mutation begins...');
     }
 
-    // === Survival Trap (15% chance) ===
+    // === Survival Trap (15%) ===
     if (Math.random() < 0.15) {
       const survivalRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -591,19 +637,13 @@ async function runGauntlet(channel) {
       });
     }
 
-    // === Mass Resurrection if 50% eliminated ===
-    const percentEliminated = eliminatedPlayers.length / gauntletEntrants.length;
-    if (percentEliminated >= 0.5) {
-      await massRevivalEvent(channel);
-    }
-
-    // === Random Boons & Curses (15% chance) ===
+    // === Boons & Curses (15%) ===
     if (Math.random() < 0.15 && remaining.length > 2) {
       const shuffled = [...remaining].sort(() => 0.5 - Math.random());
-      const affectedPlayers = shuffled.slice(0, Math.floor(Math.random() * 2) + 1);
+      const affected = shuffled.slice(0, Math.floor(Math.random() * 2) + 1);
       const fateLines = [];
 
-      for (const player of affectedPlayers) {
+      for (const player of affected) {
         const fate = Math.random();
         if (fate < 0.5) {
           activeCurses[player.id] = true;
@@ -623,8 +663,8 @@ async function runGauntlet(channel) {
       });
     }
 
-    // ⏭️ Continue to Batch 7: Audience Curse Vote
-    // === Audience Curse Vote (up to 2–3 per game) ===
+    // === Audience Curse Vote will follow in next batch ===
+    // === Audience Curse Vote ===
     let cursedPlayerId = null;
 
     if (audienceVoteCount < maxVotesPerGame && remaining.length >= 3) {
@@ -686,6 +726,7 @@ async function runGauntlet(channel) {
       const cursedIds = Object.entries(voteCounts)
         .filter(([_, count]) => count === maxVotes)
         .map(([id]) => id);
+
       cursedPlayerId = cursedIds.length
         ? cursedIds[Math.floor(Math.random() * cursedIds.length)]
         : null;
@@ -698,26 +739,22 @@ async function runGauntlet(channel) {
       }
     }
 
-    // ⏭️ Continue to Batch 8: Elimination Logic
+    // === Elimination Logic ===
     const trial = trialNames[Math.floor(Math.random() * trialNames.length)];
     let eliminationDescriptions = [];
 
     for (let i = 0; i < eliminations; i++) {
       let player;
 
-      // Force cursed player to be eliminated first
       if (i === 0 && cursedPlayerId) {
         player = remaining.find(p => p.id === cursedPlayerId);
-        if (player) {
-          remaining = remaining.filter(p => p.id !== cursedPlayerId);
-        }
+        if (player) remaining = remaining.filter(p => p.id !== cursedPlayerId);
       }
 
       if (!player) {
         player = remaining.splice(Math.floor(Math.random() * remaining.length), 1)[0];
       }
 
-      // Immunities, Boons, and Boss protections
       if (roundImmunity[player.id]) {
         eliminationDescriptions.push(`🛡️ <@${player.id}> avoided elimination with quick reflexes!`);
         continue;
@@ -759,7 +796,6 @@ async function runGauntlet(channel) {
         eliminationDescriptions.push(`❌ <@${player.id}> ${reason}`);
       }
     }
-
     // 💫 Rare Resurrection (15% chance)
     if (eliminated.length && Math.random() < 0.15) {
       const reviveIndex = Math.floor(Math.random() * eliminated.length);
@@ -773,7 +809,9 @@ async function runGauntlet(channel) {
 
     // 🎨 Embed with Random Ugly NFT + Player Count
     const tokenId = Math.floor(Math.random() * 574) + 1;
-    const nftImage = `https://ipfs.io/ipfs/bafybeie5o7afc4yxyv3xx4jhfjzqugjwl25wuauwn3554jrp26mlcmprhe/${tokenId}.jpg`;
+    const config = serverConfigs[channel.guild.id] || {};
+const baseUrl = config.ipfsBaseUrl || 'https://ipfs.io/ipfs/bafybeie5o7afc4yxyv3xx4jhfjzqugjwl25wuauwn3554jrp26mlcmprhe';
+const nftImage = `${baseUrl}/${tokenId}.jpg`;
 
     const totalPlayers = gauntletEntrants.length;
     const survivors = remaining.length;
@@ -793,10 +831,11 @@ async function runGauntlet(channel) {
     roundCounter++;
     await new Promise(r => setTimeout(r, 10000));
 
-    // Check if it's time for Totem (50% players eliminated)
+    // Check if it's time for Mass Revival again
     if (eliminatedPlayers.length >= Math.floor(totalPlayers / 2)) {
       await massRevivalEvent(channel);
     }
+  } // end while loop
   if (remaining.length <= 3) {
     const [first, second, third] = remaining;
     let firstReward = 50;
@@ -830,62 +869,9 @@ async function runGauntlet(channel) {
     });
 
     await triggerRematchPrompt(channel);
-
-    // 🎁 Rare Mint Incentive
-    completedGames++;
-    if (completedGames >= 50) {
-      completedGames = 0;
-
-      const incentives = [
-        {
-          title: "⚡ First to Mint an Ugly gets 500 $CHARM!",
-          desc: "⏳ You have **5 minutes**. Post proof in <#1334345680461762671>!",
-        },
-        {
-          title: "🧵 First to Tweet their Ugly or Monster + tag @Charm_Ugly gets 100 $CHARM!",
-          desc: "Drop proof in <#1334345680461762671> and the team will verify. GO!",
-        },
-        {
-          title: "💥 Mint 3, Get 1 Free (must open ticket)",
-          desc: "⏳ You have **15 minutes** to mint 3 — and we’ll airdrop 1 more. #UglyLuck",
-        },
-        {
-          title: "👑 Mint 3, Get a FREE MONSTER",
-          desc: "⏳ You have **15 minutes**. Prove it in a ticket and a Monster is yours.",
-        },
-        {
-          title: "🎁 All mints in the next 10 minutes earn +150 $CHARM",
-          desc: "Yes, all. Go go go.",
-        },
-        {
-          title: "🃏 Every mint = 1 raffle entry",
-          desc: "**Next prize:** 1,000 $CHARM! All mints from now to the next milestone are eligible.",
-        },
-        {
-          title: "📸 Lore Challenge Activated!",
-          desc: "Post your Ugly in <#💬┆general-chat> with a 1-liner backstory. Best lore gets 250 $CHARM in 24h.",
-        },
-        {
-          title: "📦 SECRET BOUNTY ⚠️",
-          desc: "One of the next 10 mints will receive... something special. We won't say what.",
-        }
-      ];
-
-      const selected = incentives[Math.floor(Math.random() * incentives.length)];
-      const tokenId = Math.floor(Math.random() * 574) + 1;
-      const nftImage = `https://ipfs.io/ipfs/bafybeie5o7afc4yxyv3xx4jhfjzqugjwl25wuauwn3554jrp26mlcmprhe/${tokenId}.jpg`;
-
-      await channel.send({
-        embeds: [new EmbedBuilder()
-          .setTitle(`🎉 RARE MINT INCENTIVE UNLOCKED!`)
-          .setDescription(`**${selected.title}**\n\n${selected.desc}`)
-          .setColor(0xffd700)
-          .setImage(nftImage)
-        ]
-      });
-    }
-  } // ✅ End if (remaining.length <= 3)
-// === Batch 10: Rematch Vote Logic ===
+  }
+}
+// === Batch 8: Rematch Vote Logic ===
 async function triggerRematchPrompt(channel) {
   lastGameEntrantCount = gauntletEntrants.length;
 
@@ -950,7 +936,7 @@ async function triggerRematchPrompt(channel) {
     }
   });
 }
-// === Batch 11: Message Commands ===
+// === Batch 9: Message Commands ===
 client.on('messageCreate', async message => {
   console.log(`[MSG] ${message.author.username}: ${message.content}`);
   if (message.author.bot) return;
@@ -958,7 +944,7 @@ client.on('messageCreate', async message => {
   const content = message.content.trim().toLowerCase();
   const userId = message.author.id;
 
-  // 🔁 Try to revive
+  // 🔁 Try to revive (1% chance)
   if (content === '!revive') {
     const isAlive = remaining.find(p => p.id === userId);
     if (isAlive) return message.channel.send(`🧟 <@${userId}> You're already among the living.`);
@@ -982,18 +968,27 @@ client.on('messageCreate', async message => {
     }
   }
 
-  // ⏱ Start Gauntlet (custom delay)
+  // ⏱ Start Gauntlet with custom delay
   if (content.startsWith('!gauntlet ')) {
     const delay = parseInt(content.split(' ')[1], 10);
     return startGauntlet(message.channel, isNaN(delay) ? 10 : delay);
   }
 
-  // 🟢 Start Gauntlet (default 10min)
-  if (content === '!gauntlet') {
-    return startGauntlet(message.channel, 10);
+  // 🟢 Start Gauntlet with default 10 min
+ if (content === '!gauntlet') {
+  const config = serverConfigs[message.guild.id] || {};
+  const hostRoles = config.hostRoles || [];
+  const isHost = message.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
+                 message.member.roles.cache.some(role => hostRoles.includes(role.id));
+
+  if (!isHost) {
+    return message.reply('⛔ Only approved hosts can start the Gauntlet. Ask an admin to set your role with `!GauntletAdmin`.');
   }
 
-  // 🧨 Force start early
+  return startGauntlet(message.channel, 10);
+}
+
+  // 🧨 Force start early (skip countdown)
   if (content === '!startg') {
     if (gauntletActive) {
       clearTimeout(joinTimeout);
@@ -1004,10 +999,10 @@ client.on('messageCreate', async message => {
     return;
   }
 
-  // 🧪 Trial mode (mock 20 players)
+  // 🧪 Trial Mode — 20 Mock Players
   if (content === '!gauntlettrial') {
     if (gauntletActive) return message.channel.send('A Gauntlet is already running.');
-    isTrialMode = true; // enable trial mode
+    isTrialMode = true;
     gauntletEntrants = Array.from({ length: 20 }, (_, i) => ({
       id: `MockUser${i + 1}`,
       username: `MockPlayer${i + 1}`
@@ -1020,14 +1015,68 @@ client.on('messageCreate', async message => {
     return runGauntlet(message.channel);
   }
 });
-// === Batch 12: Send DRIP $CHARM Token Rewards ===
+
+// === Batch A: !GauntletAdmin Command Handler ===
+client.on('messageCreate', async message => {
+  if (message.author.bot || !message.content.toLowerCase().startsWith('!gauntletadmin')) return;
+
+  const guildId = message.guild.id;
+  const member = await message.guild.members.fetch(message.author.id);
+
+  const isAdmin = member.permissions.has(PermissionsBitField.Flags.Administrator);
+  const config = serverConfigs[guildId] || {};
+  const adminRoles = config.adminRoles || [];
+
+  const hasAdminRole = member.roles.cache.some(role => adminRoles.includes(role.id));
+
+  if (!isAdmin && !hasAdminRole) {
+    return message.reply('⛔ You do not have permission to use this command.');
+  }
+
+  const adminRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('set_drip_token').setLabel('Set DRIP Token').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('set_drip_account').setLabel('Set DRIP Account ID').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('set_currency_id').setLabel('Set Currency ID').setStyle(ButtonStyle.Secondary)
+  );
+
+  const adminRow2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('set_host_roles').setLabel('Set Host Roles').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('set_admin_roles').setLabel('Set Admin Roles').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('set_ipfs_url').setLabel('Set NFT Image URL').setStyle(ButtonStyle.Secondary)
+  );
+
+  await message.reply({
+    content: '⚙️ Opening Gauntlet Admin Panel...',
+    ephemeral: true
+  });
+
+  await message.author.send({
+    embeds: [new EmbedBuilder()
+      .setTitle(`🛠️ Gauntlet Admin Settings`)
+      .setDescription(`Use the buttons below to update settings for this server.\n\n> Changes are saved automatically.\n> These apply **only to this server**.\n\nIf you're unsure what to do, contact @GuyLeDouce.`)
+      .setColor(0x3498db)
+    ],
+    components: [adminRow, adminRow2]
+  }).catch(() => {
+    message.reply('❌ I was unable to DM you. Please enable DMs from this server.');
+  });
+});
+
+// === Batch 10: Send DRIP $CHARM Token Rewards (Using Server Configs) ===
 async function sendCharmToUser(discordUserId, amount, channel = null) {
-  const DRIP_API_TOKEN = process.env.DRIP_API_TOKEN;
-  const DRIP_ACCOUNT_ID = '676d81ee502cd15c9c983d81'; // Replace with your DRIP account ID
-  const CURRENCY_ID = '1047256251320520705'; // Replace with your DRIP currency ID
+  const guildId = channel?.guild?.id;
+  const config = serverConfigs[guildId];
+
+  if (!config || !config.dripToken || !config.dripAccountId || !config.currencyId) {
+    console.warn(`⚠️ Missing DRIP config for guild ${guildId}. Skipping reward.`);
+    if (channel) {
+      await channel.send(`⚠️ DRIP reward config is missing for this server. Ask an admin to run \`!GauntletAdmin\`.`);
+    }
+    return;
+  }
 
   const headers = {
-    Authorization: `Bearer ${DRIP_API_TOKEN}`,
+    Authorization: `Bearer ${config.dripToken}`,
     'Content-Type': 'application/json'
   };
 
@@ -1038,8 +1087,8 @@ async function sendCharmToUser(discordUserId, amount, channel = null) {
     },
     amount: amount,
     reason: "Victory in The Gauntlet",
-    currency_id: CURRENCY_ID,
-    account_id: DRIP_ACCOUNT_ID
+    currency_id: config.currencyId,
+    account_id: config.dripAccountId
   };
 
   try {
@@ -1059,7 +1108,7 @@ async function sendCharmToUser(discordUserId, amount, channel = null) {
     }
   }
 }
-// === Batch 13: Bot Ready & Login ===
+// === Batch 11: Bot Ready & Login ===
 client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
