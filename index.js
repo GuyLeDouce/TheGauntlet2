@@ -191,6 +191,8 @@ const reviveFailLines = [
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
+
+  const { customId, guildId, user } = interaction;
 console.log(`[DEBUG] Button pressed: ${interaction.customId} by ${interaction.user.username}`);
 
   // === Join Gauntlet ===
