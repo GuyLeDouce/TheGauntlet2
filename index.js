@@ -556,7 +556,7 @@ async function runGauntlet(channel) {
     ? topCandidates[Math.floor(Math.random() * topCandidates.length)]
     : bossCandidates[Math.floor(Math.random() * bossCandidates.length)].id;
 
-  const boss = remaining.find(p => p.id === bossId);
+  boss = remaining.find(p => p.id === bossId);
   await channel.send(`👹 A foul stench rises... <@${boss.id}> has been chosen as the **UGLY BOSS**! If they make it to the podium, they earn **double $CHARM**...`);
 
   // === Begin Round Loop (next batch) ===
