@@ -1056,7 +1056,7 @@ client.on('messageCreate', async message => {
   ],
   components: [adminRow, adminRow2]
 });
-
+});
 
 // === Batch 10: Send DRIP $CHARM Token Rewards (Using Server Configs) ===
 async function sendCharmToUser(discordUserId, amount, channel = null) {
