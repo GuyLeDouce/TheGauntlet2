@@ -1020,6 +1020,7 @@ client.on('messageCreate', async message => {
 });
 
 // === Batch A: !GauntletAdmin Command Handler ===
+// === Batch A: !GauntletAdmin Command Handler (In-Channel Version) ===
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.content.toLowerCase().startsWith('!gauntletadmin')) return;
 
@@ -1049,13 +1050,98 @@ client.on('messageCreate', async message => {
   );
 
   await message.reply({
-  embeds: [new EmbedBuilder()
-    .setTitle(`🛠️ Gauntlet Admin Settings`)
-    .setDescription(`Use the buttons below to update settings for this server.\n\n> Changes are saved automatically.\n> These apply **only to this server**.\n\nIf you're unsure what to do, contact @GuyLeDouce.`)
-    .setColor(0x3498db)
-  ],
-  components: [adminRow, adminRow2]
+    content: '⚙️ Opening Gauntlet Admin Panel...',
+    ephemeral: true
+  });
+
+  await message.channel.send({
+    content: `<@${message.author.id}>`,
+    embeds: [new EmbedBuilder()
+      .setTitle(`🛠️ Gauntlet Admin Settings`)
+      .setDescription(`Use the buttons below to update settings for this server.\n\n> These changes are only visible to **you**.\n> They apply only to **this server**.\n\nIf you're unsure, contact @GuyLeDouce.`)
+      .setColor(0x3498db)
+    ],
+    components: [adminRow, adminRow2]
+  });
 });
+
+// === Batch B: Admin Button Interaction Handlers (In-Channel Prompt Version) ===
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isButton()) return;
+
+  const { user, customId, guildId, channel } = interaction;
+  if (!guildId) return;
+
+  const fieldMap = {
+    set_drip_token: {
+      field: 'dripToken',
+      title: 'Set DRIP Token',
+      desc: 'Paste your **DRIP API Token**.\n\n🔍 You can find this on your Drip Dashboard > Profile > API Settings.\n\nExample:\n```\nabcd1234efgh5678ijkl9012mnop3456\n```'
+    },
+    set_drip_account: {
+      field: 'dripAccountId',
+      title: 'Set DRIP Account ID',
+      desc: 'Paste your **Drip Account ID**.\n\n🔍 Found under Profile > Account Info.\n\nExample:\n```\nacct_123abc456def\n```'
+    },
+    set_currency_id: {
+      field: 'currencyId',
+      title: 'Set DRIP Currency ID',
+      desc: 'Paste your **Currency ID** (usually corresponds to the token you created).\n\nExample:\n```\ncurrency_789xyz123abc\n```'
+    },
+    set_ipfs_url: {
+      field: 'ipfsBaseUrl',
+      title: 'Set NFT Image Base URL',
+      desc: 'Paste the **base URL** where your NFT images are hosted. Do not include a trailing slash.\n\nExample:\n```\nhttps://ipfs.io/ipfs/QmExample123xyz\n```'
+    },
+    set_host_roles: {
+      field: 'hostRoles',
+      title: 'Set Host Roles',
+      desc: `Mention the roles that should be allowed to **start games**.\n\nExample:\n<@&1234567890>, <@&0987654321>\n\nCurrent Roles: ${serverConfigs[guildId]?.hostRoles?.map(id => `<@&${id}>`).join(', ') || 'None yet'}`
+    },
+    set_admin_roles: {
+      field: 'adminRoles',
+      title: 'Set Admin Roles',
+      desc: `Mention the roles that should be allowed to use **!GauntletAdmin**.\n⚠️ These roles have **full control** over all bot settings.\n\nExample:\n<@&1234567890>\n\nCurrent Roles: ${serverConfigs[guildId]?.adminRoles?.map(id => `<@&${id}>`).join(', ') || 'None yet'}`
+    }
+  };
+
+  const setting = fieldMap[customId];
+  if (!setting) return;
+
+  await interaction.reply({
+    embeds: [new EmbedBuilder()
+      .setTitle(`🛠️ ${setting.title}`)
+      .setDescription(setting.desc)
+      .setColor(0xffd700)
+    ],
+    ephemeral: true
+  });
+
+  const msgCollector = channel.createMessageCollector({
+    filter: m => m.author.id === user.id,
+    max: 1,
+    time: 60000
+  });
+
+  msgCollector.on('collect', msg => {
+    if (!serverConfigs[guildId]) serverConfigs[guildId] = {};
+
+    if (['hostRoles', 'adminRoles'].includes(setting.field)) {
+      const roleIds = msg.mentions.roles.map(r => r.id);
+      serverConfigs[guildId][setting.field] = roleIds;
+    } else {
+      serverConfigs[guildId][setting.field] = msg.content.trim();
+    }
+
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(serverConfigs, null, 2));
+    msg.reply(`✅ **${setting.field}** updated successfully.`);
+  });
+
+  msgCollector.on('end', collected => {
+    if (collected.size === 0) {
+      channel.send(`<@${user.id}> ⏳ Input timed out. Use \`!GauntletAdmin\` again to retry.`);
+    }
+  });
 });
 
 // === Batch 10: Send DRIP $CHARM Token Rewards (Using Server Configs) ===
