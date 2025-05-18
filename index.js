@@ -1058,7 +1058,43 @@ client.on('messageCreate', async message => {
     content: `<@${message.author.id}>`,
     embeds: [new EmbedBuilder()
       .setTitle(`🛠️ Gauntlet Admin Settings`)
-      .setDescription(`Use the buttons below to update settings for this server.\n\n> These changes are only visible to **you**.\n> They apply only to **this server**.\n\nIf you're unsure, contact @GuyLeDouce.`)
+      .setDescription([
+  "**Use the buttons below to configure your server’s Gauntlet settings.**",
+  "Each button opens a **private input prompt** (visible only to you). Be prepared with the correct information before clicking.",
+  "",
+  "**🔑 Set DRIP Token**",
+  "Used to **authorize reward payouts** via the Drip platform’s API.",
+  "📌 Found in your **Drip Dashboard → Profile → API Settings**",
+  "🧪 Example: `sk_live_7hf83fdn2387fh3l...`",
+  "",
+  "**🏦 Set DRIP Account ID**",
+  "Specifies **which account is sending the rewards**.",
+  "📌 Found under **Profile → Account Info** in Drip",
+  "🧪 Example: `acct_4f7s92hj3g239f`",
+  "",
+  "**💰 Set Currency ID**",
+  "Determines **which token or currency** the bot will send as rewards.",
+  "📌 Found under your Drip account’s token settings",
+  "🧪 Example: `currency_9dfj2js92jf`",
+  "",
+  "**🎮 Set Host Roles**",
+  "Sets **who can start Gauntlet games** using `!gauntlet`.",
+  "📌 Use **@mentioned roles** or **Role IDs**",
+  "✅ Example: `@Moderator, @Events Host`",
+  "",
+  "**🛠️ Set Admin Roles**",
+  "Controls **who can use `!GauntletAdmin`** to access all settings.",
+  "⚠️ Only assign to trusted users.",
+  "✅ Example: `@Admins, @Lead Mod`",
+  "",
+  "**🖼️ Set NFT Image URL**",
+  "Sets the **base image link** for your NFT collection.",
+  "📌 Use a base URL with **no trailing slash**",
+  "✅ Example: `https://ipfs.io/ipfs/QmExampleHashHere`",
+  "",
+  "> 🧷 All settings are saved per-server and take effect immediately.",
+  "> ❓ If you need help, contact @GuyLeDouce or visit the @Charm_Ugly server."
+].join('\n'))
       .setColor(0x3498db)
     ],
     components: [adminRow, adminRow2]
