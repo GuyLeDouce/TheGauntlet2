@@ -191,6 +191,7 @@ const reviveFailLines = [
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
+console.log(`[DEBUG] Button pressed: ${interaction.customId} by ${interaction.user.username}`);
 
   // === Join Gauntlet ===
   if (interaction.customId === 'join_gauntlet' && gauntletActive) {
@@ -1046,21 +1047,14 @@ client.on('messageCreate', async message => {
   );
 
   await message.reply({
-    content: '⚙️ Opening Gauntlet Admin Panel...',
-    ephemeral: true
-  });
-
-  await message.author.send({
-    embeds: [new EmbedBuilder()
-      .setTitle(`🛠️ Gauntlet Admin Settings`)
-      .setDescription(`Use the buttons below to update settings for this server.\n\n> Changes are saved automatically.\n> These apply **only to this server**.\n\nIf you're unsure what to do, contact @GuyLeDouce.`)
-      .setColor(0x3498db)
-    ],
-    components: [adminRow, adminRow2]
-  }).catch(() => {
-    message.reply('❌ I was unable to DM you. Please enable DMs from this server.');
-  });
+  embeds: [new EmbedBuilder()
+    .setTitle(`🛠️ Gauntlet Admin Settings`)
+    .setDescription(`Use the buttons below to update settings for this server.\n\n> Changes are saved automatically.\n> These apply **only to this server**.\n\nIf you're unsure what to do, contact @GuyLeDouce.`)
+    .setColor(0x3498db)
+  ],
+  components: [adminRow, adminRow2]
 });
+
 
 // === Batch 10: Send DRIP $CHARM Token Rewards (Using Server Configs) ===
 async function sendCharmToUser(discordUserId, amount, channel = null) {
